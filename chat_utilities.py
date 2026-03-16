@@ -4,50 +4,32 @@ import pytz
 from llm_factory.get_llm import get_gemini_llm
 
 
-def get_system_context() -> str:
-    """Builds a system prompt with current date, time and region info."""
-    # India timezone (change to your region if needed)
+def get_current_datetime_context() -> str:
+    """Gets real current date and time in IST."""
     IST = pytz.timezone("Asia/Kolkata")
     now = datetime.now(IST)
-
-    day_name = now.strftime("%A")           # e.g. Monday
-    date_str = now.strftime("%d %B %Y")     # e.g. 13 March 2026
-    time_str = now.strftime("%I:%M %p")     # e.g. 04:30 PM
-    timezone = "IST (UTC+5:30)"
-    region = "India"
-
     return (
-        f"You are ConvoPro, a helpful AI assistant.\n"
-        f"Current Date: {day_name}, {date_str}\n"
-        f"Current Time: {time_str}\n"
-        f"Timezone: {timezone}\n"
-        f"Region: {region}\n"
-        f"Always use this information when the user asks about "
-        f"current date, time, day, or anything time-related. "
-        f"Never say you don't know the current date or time."
+        f"Today is {now.strftime('%A, %d %B %Y')}. "
+        f"Current time is {now.strftime('%I:%M %p')} IST (India). "
+        f"Current year is {now.year}. Current month is {now.strftime('%B')}."
     )
 
 
 def get_answer(model_name: str, chat_history: list) -> str:
-    """
-    Sends chat history to Gemini with date/time context injected.
-    """
     llm = get_gemini_llm(model_name)
 
-    # Build Gemini history (excluding last user message)
+    # Get real datetime RIGHT when user sends message
+    datetime_context = get_current_datetime_context()
+
+    # Inject datetime directly into the user's message
+    last_message = chat_history[-1]["content"]
+    augmented_message = (
+        f"[SYSTEM CONTEXT — USE THIS AS GROUND TRUTH: {datetime_context}]\n\n"
+        f"User message: {last_message}"
+    )
+
+    # Build Gemini history (all except last message)
     gemini_history = []
-
-    # Inject system context as first user+model exchange
-    gemini_history.append({
-        "role": "user",
-        "parts": [get_system_context()]
-    })
-    gemini_history.append({
-        "role": "model",
-        "parts": ["Understood! I'm ConvoPro. I have the current date, time and region context and will use it accurately in my responses."]
-    })
-
-    # Add rest of conversation history
     for msg in chat_history[:-1]:
         gemini_role = "model" if msg["role"] == "assistant" else "user"
         gemini_history.append({
@@ -55,11 +37,8 @@ def get_answer(model_name: str, chat_history: list) -> str:
             "parts": [msg["content"]]
         })
 
-    # Start chat and send latest message
+    # Start chat with history and send augmented message
     chat = llm.start_chat(history=gemini_history)
-    last_message = chat_history[-1]["content"]
-    response = chat.send_message(last_message)
+    response = chat.send_message(augmented_message)
 
     return response.text
-
-
